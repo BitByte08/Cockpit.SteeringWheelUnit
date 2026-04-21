@@ -1,0 +1,18 @@
+.contexty
+.claude
+.cache
+.settings
+.vscode
+
+# Build outputs
+build/
+*.o
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+
+# Logs
+*.log
+.mxproject
