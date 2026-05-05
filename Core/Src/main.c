@@ -627,7 +627,7 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-/* CAN RX FIFO0 callback — handles FFB torque from physical CAN bus */
+/* CAN RX FIFO0 callback — forwards all frames via SLCAN, handles FFB torque */
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan_arg)
 {
   CAN_RxHeaderTypeDef rx_hdr;
@@ -639,6 +639,17 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan_arg)
   if (rx_hdr.StdId == CAN_ID_FFB && rx_hdr.DLC >= 2u) {
     g_ffb_torque = (int16_t)(rx_data[0] | ((uint16_t)rx_data[1] << 8));
     Motor_SetTorque(g_ffb_torque);
+  }
+
+  /* Forward every received frame to host via SLCAN (always, regardless of open state) */
+  {
+    uint8_t buf[30];
+    uint8_t len = (uint8_t)snprintf((char *)buf, sizeof(buf), "t%03X%u",
+                                    (unsigned)rx_hdr.StdId, (unsigned)rx_hdr.DLC);
+    for (uint8_t i = 0; i < rx_hdr.DLC; i++)
+      len += (uint8_t)snprintf((char *)buf + len, sizeof(buf) - len, "%02X", rx_data[i]);
+    buf[len++] = '\r';
+    HAL_UART_Transmit(&huart1, buf, len, 20);
   }
 }
 
