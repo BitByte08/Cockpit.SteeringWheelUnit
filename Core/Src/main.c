@@ -60,7 +60,7 @@ UART_HandleTypeDef huart1;
 static volatile int16_t  g_ffb_torque    = 0;
 static volatile int32_t  g_enc_total     = 0;
 static volatile int32_t  g_enc_zero      = 0;  /* Encoder zero offset (set by 0x106 cmd) */
-static volatile float    g_angle_scale   = 1.0f; /* Angle correction scale (set by 0x107 cmd) */
+static volatile float    g_angle_scale   = (180.0f / 520.0f); /* Angle scale: 180° physical = 520° raw */
 static volatile float    g_steering_deg  = 0.0f;
 static          int16_t  g_enc_prev      = 0;
 static volatile uint8_t  g_slcan_open    = 0;
