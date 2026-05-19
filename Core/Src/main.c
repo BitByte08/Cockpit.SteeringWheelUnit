@@ -95,9 +95,12 @@ static uint8_t Hex2Nibble(uint8_t c);
 
 static void Motor_SetTorque(int16_t torque)
 {
-    /* End-stop protection: block torque pushing further into hard stop */
-    if (g_steering_deg >=  MAX_STEERING_DEG && torque > 0) torque = 0;
-    if (g_steering_deg <= -MAX_STEERING_DEG && torque < 0) torque = 0;
+    /* Hard end-stop: actively push back at full power when past max angle */
+    if (g_steering_deg >= MAX_STEERING_DEG) {
+        torque = -32767;
+    } else if (g_steering_deg <= -MAX_STEERING_DEG) {
+        torque = 32767;
+    }
 
     int32_t abs_t = (torque < 0) ? -torque : torque;
     uint32_t duty = (uint32_t)(abs_t * PWM_PERIOD / 32767u);
