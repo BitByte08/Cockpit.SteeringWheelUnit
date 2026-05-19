@@ -392,20 +392,22 @@ int main(void)
         HAL_CAN_AddTxMessage(&hcan, &hdr, dbg, &mailbox);
       }
 
-      /* CAN ESR diagnostic: send CAN error status register */
+      /* CAN ESR diagnostic: send CAN error + bus status */
       {
         uint32_t esr = hcan.Instance->ESR;
+        uint32_t rf0r = hcan.Instance->RF0R;  /* RX FIFO 0: bits [1:0]=FMP (pending msgs) */
+        uint32_t tsr = hcan.Instance->TSR;     /* TX status */
+        uint32_t idr = GPIOB->IDR;             /* PB8=CAN_RX actual pin level */
+
         uint8_t dbg[8];
-        dbg[0] = (uint8_t)(esr & 0xFF);
-        dbg[1] = (uint8_t)((esr >> 8) & 0xFF);
-        dbg[2] = (uint8_t)((esr >> 16) & 0xFF);
-        dbg[3] = (uint8_t)((esr >> 24) & 0xFF);
-        /* MSR for additional status */
-        uint32_t msr = hcan.Instance->MSR;
-        dbg[4] = (uint8_t)(msr & 0xFF);
-        dbg[5] = (uint8_t)((msr >> 8) & 0xFF);
-        dbg[6] = (uint8_t)((msr >> 16) & 0xFF);
-        dbg[7] = (uint8_t)((msr >> 24) & 0xFF);
+        dbg[0] = (uint8_t)(esr & 0xFF);        /* EWG/EPV/BOFF/LEC */
+        dbg[1] = (uint8_t)((esr >> 16) & 0xFF);/* TEC */
+        dbg[2] = (uint8_t)((esr >> 24) & 0xFF);/* REC */
+        dbg[3] = (uint8_t)(rf0r & 0xFF);       /* RF0R: FMP0, FULL, FOVR */
+        dbg[4] = (uint8_t)((tsr >> 24) & 0xFF);/* TSR: TXOK0/1/2, TME0/1/2 */
+        dbg[5] = (uint8_t)((idr >> 8) & 0x01); /* PB8 pin level (0=dominant, 1=recessive) */
+        dbg[6] = (uint8_t)(hcan.Instance->BTR & 0xFF); /* BTR low byte: prescaler bits */
+        dbg[7] = (uint8_t)((hcan.Instance->BTR >> 8) & 0xFF); /* BTR: TS1/TS2/SJW */
 
         CAN_TxHeaderTypeDef hdr = {
             .StdId              = CAN_ID_CAN_ESR,
