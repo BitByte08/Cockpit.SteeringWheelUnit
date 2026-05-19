@@ -39,6 +39,7 @@
 #define CAN_ID_CAN_ESR      0x103u  /* CAN ESR diagnostic */
 #define CAN_ID_FFB          0x105u
 #define CAN_ID_ENC_ZERO     0x106u  /* Encoder zero calibration command */
+#define CAN_ID_ANGLE_CAL    0x107u  /* Angle scale calibration: int16 known_angle×10 */
 #define ANGLE_TX_PERIOD_MS  10u
 #define SW_TX_PERIOD_MS     100u
 /* USER CODE END PD */
@@ -59,6 +60,7 @@ UART_HandleTypeDef huart1;
 static volatile int16_t  g_ffb_torque    = 0;
 static volatile int32_t  g_enc_total     = 0;
 static volatile int32_t  g_enc_zero      = 0;  /* Encoder zero offset (set by 0x106 cmd) */
+static volatile float    g_angle_scale   = 1.0f; /* Angle correction scale (set by 0x107 cmd) */
 static volatile float    g_steering_deg  = 0.0f;
 static          int16_t  g_enc_prev      = 0;
 static volatile uint8_t  g_slcan_open    = 0;
@@ -135,7 +137,7 @@ static void Encoder_Update(void)
         if (enc_rel >  MAX_ENC_COUNT) enc_rel =  MAX_ENC_COUNT;
         if (enc_rel < -MAX_ENC_COUNT) enc_rel = -MAX_ENC_COUNT;
 
-        g_steering_deg = (float)enc_rel * 360.0f / (float)COUNTS_PER_REV;
+        g_steering_deg = (float)enc_rel * 360.0f / (float)COUNTS_PER_REV * g_angle_scale;
         
         /* Visual feedback: toggle LED on encoder movement */
         HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
@@ -730,6 +732,16 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan_arg)
     /* Set current encoder position as zero (wheel must be at physical center) */
     g_enc_zero = g_enc_total;
     g_steering_deg = 0.0f;
+  } else if (rx_hdr.StdId == CAN_ID_ANGLE_CAL && rx_hdr.DLC >= 2u) {
+    /* Angle scale calibration: data = known angle × 10 (int16 LE).
+     * Turn wheel to a known angle from zero, then send this command.
+     * STM32 computes the correction factor from enc_rel vs known angle. */
+    int16_t known_deg10 = (int16_t)(rx_data[0] | ((uint16_t)rx_data[1] << 8));
+    int32_t enc_rel = g_enc_total - g_enc_zero;
+    if (enc_rel != 0 && known_deg10 != 0) {
+      float reported = (float)enc_rel * 360.0f / (float)COUNTS_PER_REV;
+      g_angle_scale = (known_deg10 / 10.0f) / reported;
+    }
   }
 
   /* Forward every received frame to host via SLCAN (always, regardless of open state) */
