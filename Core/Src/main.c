@@ -38,6 +38,7 @@
 #define CAN_ID_FFB_DIAG     0x102u  /* FFB diagnostic */
 #define CAN_ID_CAN_ESR      0x103u  /* CAN ESR diagnostic */
 #define CAN_ID_FFB          0x105u
+#define CAN_ID_ENC_ZERO     0x106u  /* Encoder zero calibration command */
 #define ANGLE_TX_PERIOD_MS  10u
 #define SW_TX_PERIOD_MS     100u
 /* USER CODE END PD */
@@ -57,6 +58,7 @@ UART_HandleTypeDef huart1;
 /* USER CODE BEGIN PV */
 static volatile int16_t  g_ffb_torque    = 0;
 static volatile int32_t  g_enc_total     = 0;
+static volatile int32_t  g_enc_zero      = 0;  /* Encoder zero offset (set by 0x106 cmd) */
 static volatile float    g_steering_deg  = 0.0f;
 static          int16_t  g_enc_prev      = 0;
 static volatile uint8_t  g_slcan_open    = 0;
@@ -128,10 +130,12 @@ static void Encoder_Update(void)
     /* Only update if encoder moved */
     if (delta != 0) {
         g_enc_total += delta;
-        if (g_enc_total >  MAX_ENC_COUNT) g_enc_total =  MAX_ENC_COUNT;
-        if (g_enc_total < -MAX_ENC_COUNT) g_enc_total = -MAX_ENC_COUNT;
 
-        g_steering_deg = (float)g_enc_total * 360.0f / (float)COUNTS_PER_REV;
+        int32_t enc_rel = g_enc_total - g_enc_zero;
+        if (enc_rel >  MAX_ENC_COUNT) enc_rel =  MAX_ENC_COUNT;
+        if (enc_rel < -MAX_ENC_COUNT) enc_rel = -MAX_ENC_COUNT;
+
+        g_steering_deg = (float)enc_rel * 360.0f / (float)COUNTS_PER_REV;
         
         /* Visual feedback: toggle LED on encoder movement */
         HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
@@ -722,6 +726,10 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan_arg)
     g_ffb_rx_count++;
     g_ffb_last_raw = g_ffb_torque;
     Motor_SetTorque(g_ffb_torque);
+  } else if (rx_hdr.StdId == CAN_ID_ENC_ZERO) {
+    /* Set current encoder position as zero (wheel must be at physical center) */
+    g_enc_zero = g_enc_total;
+    g_steering_deg = 0.0f;
   }
 
   /* Forward every received frame to host via SLCAN (always, regardless of open state) */
