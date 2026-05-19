@@ -88,6 +88,11 @@ void HAL_CAN_MspInit(CAN_HandleTypeDef* hcan)
     __HAL_RCC_CAN1_CLK_ENABLE();
 
     __HAL_RCC_GPIOB_CLK_ENABLE();
+    __HAL_RCC_AFIO_CLK_ENABLE();
+
+    /* IMPORTANT: AFIO remap MUST be set BEFORE GPIO configuration for alternate functions */
+    __HAL_AFIO_REMAP_CAN1_2();
+
     /**CAN GPIO Configuration
     PB8     ------> CAN_RX
     PB9     ------> CAN_TX
@@ -101,8 +106,6 @@ void HAL_CAN_MspInit(CAN_HandleTypeDef* hcan)
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
     HAL_GPIO_Init(CAN_TX_GPIO_Port, &GPIO_InitStruct);
-
-    __HAL_AFIO_REMAP_CAN1_2();
 
     /* USER CODE BEGIN CAN1_MspInit 1 */
     HAL_NVIC_SetPriority(CAN1_RX0_IRQn, 2, 0);

@@ -36,6 +36,7 @@
 #define CAN_ID_STEERING     0x100u
 #define CAN_ID_SWITCHES     0x101u
 #define CAN_ID_FFB_DIAG     0x102u  /* FFB diagnostic */
+#define CAN_ID_CAN_ESR      0x103u  /* CAN ESR diagnostic */
 #define CAN_ID_FFB          0x105u
 #define ANGLE_TX_PERIOD_MS  10u
 #define SW_TX_PERIOD_MS     100u
@@ -382,6 +383,32 @@ int main(void)
 
         CAN_TxHeaderTypeDef hdr = {
             .StdId              = CAN_ID_FFB_DIAG,
+            .IDE                = CAN_ID_STD,
+            .RTR                = CAN_RTR_DATA,
+            .DLC                = 8,
+            .TransmitGlobalTime = DISABLE,
+        };
+        uint32_t mailbox;
+        HAL_CAN_AddTxMessage(&hcan, &hdr, dbg, &mailbox);
+      }
+
+      /* CAN ESR diagnostic: send CAN error status register */
+      {
+        uint32_t esr = hcan.Instance->ESR;
+        uint8_t dbg[8];
+        dbg[0] = (uint8_t)(esr & 0xFF);
+        dbg[1] = (uint8_t)((esr >> 8) & 0xFF);
+        dbg[2] = (uint8_t)((esr >> 16) & 0xFF);
+        dbg[3] = (uint8_t)((esr >> 24) & 0xFF);
+        /* MSR for additional status */
+        uint32_t msr = hcan.Instance->MSR;
+        dbg[4] = (uint8_t)(msr & 0xFF);
+        dbg[5] = (uint8_t)((msr >> 8) & 0xFF);
+        dbg[6] = (uint8_t)((msr >> 16) & 0xFF);
+        dbg[7] = (uint8_t)((msr >> 24) & 0xFF);
+
+        CAN_TxHeaderTypeDef hdr = {
+            .StdId              = CAN_ID_CAN_ESR,
             .IDE                = CAN_ID_STD,
             .RTR                = CAN_RTR_DATA,
             .DLC                = 8,
