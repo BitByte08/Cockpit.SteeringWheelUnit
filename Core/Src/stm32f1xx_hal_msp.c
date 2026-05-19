@@ -93,7 +93,7 @@ void HAL_CAN_MspInit(CAN_HandleTypeDef* hcan)
     PB9     ------> CAN_TX
     */
     GPIO_InitStruct.Pin = CAN_RX_Pin;
-    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_INPUT;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(CAN_RX_GPIO_Port, &GPIO_InitStruct);
 
