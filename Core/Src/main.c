@@ -35,6 +35,7 @@
 
 #define CAN_ID_STEERING     0x100u
 #define CAN_ID_SWITCHES     0x101u
+#define CAN_ID_FFB_DIAG     0x102u  /* FFB diagnostic */
 #define CAN_ID_FFB          0x105u
 #define ANGLE_TX_PERIOD_MS  10u
 #define SW_TX_PERIOD_MS     100u
@@ -60,6 +61,10 @@ static          int16_t  g_enc_prev      = 0;
 static volatile uint8_t  g_slcan_open    = 0;
 static volatile uint8_t  g_turn_left     = 0;
 static volatile uint8_t  g_turn_right    = 0;
+
+static volatile uint32_t g_ffb_rx_count  = 0;
+static volatile int16_t  g_ffb_last_raw = 0;
+static volatile uint32_t g_last_duty    = 0;
 
 static uint8_t  g_slcan_line[32];
 static uint8_t  g_slcan_pos     = 0;
@@ -89,7 +94,12 @@ static void Motor_SetTorque(int16_t torque)
     if (g_steering_deg >=  MAX_STEERING_DEG && torque > 0) torque = 0;
     if (g_steering_deg <= -MAX_STEERING_DEG && torque < 0) torque = 0;
 
-    uint32_t duty = (uint32_t)((torque < 0 ? -torque : torque) * PWM_PERIOD / 32767u);
+    int32_t abs_t = (torque < 0) ? -torque : torque;
+    uint32_t duty = (uint32_t)(abs_t * PWM_PERIOD / 32767u);
+
+    /* Minimum duty: L298N needs ~15% to overcome motor friction */
+    const uint32_t min_duty = 150u;
+    if (abs_t > 0 && duty < min_duty) duty = min_duty;
 
     if (torque > 0) {
         HAL_GPIO_WritePin(MOTOR_IN1_GPIO_Port, MOTOR_IN1_Pin, GPIO_PIN_SET);
@@ -103,6 +113,7 @@ static void Motor_SetTorque(int16_t torque)
         HAL_GPIO_WritePin(MOTOR_IN2_GPIO_Port, MOTOR_IN2_Pin, GPIO_PIN_RESET);
         duty = 0;
     }
+    g_last_duty = duty;
     __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, duty);
 }
 
@@ -302,6 +313,23 @@ int main(void)
   HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING);
   HAL_CAN_Start(&hcan);
 
+  /* === CAN SELF-TEST: TX 0x105, check if RX callback fires === */
+  {
+      CAN_TxHeaderTypeDef hdr = {
+          .StdId              = CAN_ID_FFB,
+          .IDE                = CAN_ID_STD,
+          .RTR                = CAN_RTR_DATA,
+          .DLC                = 2,
+          .TransmitGlobalTime = DISABLE,
+      };
+      uint8_t test_data[2] = { 0x7F, 0x00 }; // torque = 127
+      uint32_t mailbox;
+      HAL_CAN_AddTxMessage(&hcan, &hdr, test_data, &mailbox);
+      HAL_Delay(50); // Wait for RX callback
+      // rxCount should be 1 if self-reception works
+  }
+  /* === END SELF-TEST === */
+
   /* UART: start single-byte interrupt receive */
   HAL_UART_Receive_IT(&huart1, &g_uart_rx_byte, 1);
 
@@ -338,6 +366,30 @@ int main(void)
     if ((now - last_angle_tx) >= ANGLE_TX_PERIOD_MS) {
       Motor_SetTorque(g_ffb_torque);
       SLCAN_SendAngle();
+
+      /* FFB diagnostic: send rx_count, last_raw, last_duty, steering_deg */
+      {
+        uint8_t dbg[8];
+        dbg[0] = (uint8_t)(g_ffb_rx_count & 0xFF);
+        dbg[1] = (uint8_t)((g_ffb_rx_count >> 8) & 0xFF);
+        dbg[2] = (uint8_t)(g_ffb_last_raw & 0xFF);
+        dbg[3] = (uint8_t)((g_ffb_last_raw >> 8) & 0xFF);
+        dbg[4] = (uint8_t)(g_last_duty & 0xFF);
+        dbg[5] = (uint8_t)((g_last_duty >> 8) & 0xFF);
+        int16_t deg10 = (int16_t)(g_steering_deg * 10.0f);
+        dbg[6] = (uint8_t)(deg10 & 0xFF);
+        dbg[7] = (uint8_t)((deg10 >> 8) & 0xFF);
+
+        CAN_TxHeaderTypeDef hdr = {
+            .StdId              = CAN_ID_FFB_DIAG,
+            .IDE                = CAN_ID_STD,
+            .RTR                = CAN_RTR_DATA,
+            .DLC                = 8,
+            .TransmitGlobalTime = DISABLE,
+        };
+        uint32_t mailbox;
+        HAL_CAN_AddTxMessage(&hcan, &hdr, dbg, &mailbox);
+      }
       last_angle_tx = now;
     }
 
@@ -638,6 +690,8 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan_arg)
 
   if (rx_hdr.StdId == CAN_ID_FFB && rx_hdr.DLC >= 2u) {
     g_ffb_torque = (int16_t)(rx_data[0] | ((uint16_t)rx_data[1] << 8));
+    g_ffb_rx_count++;
+    g_ffb_last_raw = g_ffb_torque;
     Motor_SetTorque(g_ffb_torque);
   }
 
